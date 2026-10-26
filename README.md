@@ -1,5 +1,6 @@
 # Sublimation for Sublimation —— 用 Sublimation 形式化 Sublimation
 
+> 这个仓库名是一个玩笑，如果你笑了，那么作者会很开心。
 用 Sublimation 语言本身，形式化描述 Sublimation 语言自身的语法、类型系统、语义与编译管道，
 在**严格限定于有限可构造层**的前提下尽可能多地完成形式化。
 
