@@ -1,0 +1,70 @@
+// pipeline.subl —— 第 4 层：编译管道（阶段序 / 通道序 / 饱和闭包 R 规则 / 处理器管线 / 模块树）
+//
+// 【 atoi】管道各抽象层都是有限可枚举对象（阶段、通道、轮数），其性质写成
+// 「事实前提 → 结论」的蕴含规则，经调用注入 + MP 闭包放电；不动点/终止性只作
+// 算法级陈述（单调 + 有界 ⟹ 不动点，非完备性陈述）。
+
+// ============ 阶段序（7 阶段） ============
+enum Phase {
+    PLex(), PParse(), PChkA(), PChkB(), PChkC(), PGen(), PPost()
+}
+def phBefore<i, j>      // 阶段 i 先于 j
+@theorem
+fun `phase trans`[i, j, k]: Null <((phBefore(i, j) & phBefore(j, k)) → phBefore(i, k))>
+
+// ============ 通道序（13 通道） ============
+enum Ch {
+    CExpand(), CNot(), CImp(), CAnd(), CConstAtomV(), CConstAtomT(), CImpurity(), CTypeJudg(),
+    CReduceC(), CReal(), CArith(), CProver(), CSearch()
+}
+def chanBefore<i, j>    // 通道 i 先于 j
+def tryC<i, k>          // 通道 i 尝试命题 k
+def hitC<i, k>          // 通道 i 命中命题 k
+def provK<k>            // 命题 k 可证
+// 短路语义：早期通道命中 ⟹ 不再尝试后续通道（diffusion 的通道序忠实化）
+@theorem
+fun `chan short`[i, j, k]: Null <((hitC(i, k) & chanBefore(i, j)) → ¬(tryC(j, k)))>
+// 命中即获证
+@theorem
+fun `chan prove`[i, k]: Null <(hitC(i, k) → provK(k))>
+
+// ============ 饱和闭包的 R 规则 ============
+def factK<k>            // k 是 Γ 事实
+def impK<k1, k2>        // k1 蕴含 k2（闭包中的蕴含边）
+def allK<k>             // k 是全称式
+def instK<k1, k2>       // k2 是 k1 的实例
+def nprovK<k>           // k 不可证
+// R-AXIOM：事实即可证
+@theorem
+fun `r axiom`[k]: Null <(factK(k) → provK(k))>
+// R-INST：全称式的实例亦可证
+@theorem
+fun `r inst`[k, k2]: Null <((allK(k) & instK(k, k2)) → provK(k2))>
+// R-MP：k1 可证且 k1 蕴含 k2 ⟹ k2 可证
+@theorem
+fun `r mp`[k1, k2]: Null <((provK(k1) & impK(k1, k2)) → provK(k2))>
+def nprovK1<k>           // k1 的「不可证」伴随命题
+// R-MT：k1 的逆否可证 ⟹ k1 不可证
+@theorem
+fun `r mt`[k1, k2]: Null <((provK(k2) & impK(k2, nprovK1(k1))) → nprovK(k1))>
+// 闭包终止：单调 + 有界 ⟹ 到达不动点（算法级论证；非完备性陈述）
+@theorem
+fun `satur fix`[n]: Null <((monoR(n) & boundR(n)) → termR(n))>
+def monoR<n>            // 第 n 轮单调（只增不减）
+def boundR<n>           // 第 n 轮有界（事实集上限存在）
+def termR<n>            // 第 n 轮到达不动点
+
+// ============ 注解处理器管线（4 阶段） ============
+enum Proc {
+    PReg(), PScan(), PXform(), PPost2()
+}
+def procBefore<i, j>
+@theorem
+fun `proc trans`[i, j, k]: Null <((procBefore(i, j) & procBefore(j, k)) → procBefore(i, k))>
+
+// ============ 模块树 ============
+def modOf<m, p>     // m 是路径 p 上的模块
+def rootMod<m>      // m 是根模块
+// 根模块对全部路径可见
+@theorem
+fun `root visible`[m, p]: Null <(rootMod(m) → modOf(m, p))>

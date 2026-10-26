@@ -1,0 +1,88 @@
+// statics.subl —— 第 2 层：静态语义（定型规则）+ 命题/程序分野 + 可变拷贝规则
+//
+// 【定型判断】typed(g, n, t)：上下文 g 下结点 n 有类型 t（结点按名索引，形状由 ast 的
+// 形状谓词外化）。七条结构规则全部写成「形状前提 + 定型前提 → 定型结论」，
+// angle 参数全为名位，规则经调用注入其角度（蕴含式），由饱和闭包 MP 放电；
+// ∴ 检查点成功后结论注入 Γ（Checker.kt:661），下游规则方可引用——分阶段推导链成立。
+// 【哥德尔边界】弱化/代换/进度/保持是「元定理的有限实例化陈述」，归纳本身不机械化
+// （归纳受信、实例由机器核对——见 app/limits.md）。
+
+// ============ 定型判断与上下文谓词 ============
+def typed<g, n, t>        // g ⊢ n : t
+def bound<g, x, t>        // g 中 x : t
+def subCtx<g, g2>         // g 是 g2 的前缀（子上下文）
+
+// ============ 定型规则（全部名位、全部蕴含式 angle） ============
+// T-Var：x 在 g 中绑定为 t，且 n 恰是变量结点 Var(x)
+@theorem
+fun `t var`[g, x, t, n]: Null <((bound(g, x, t) & isVarX(n, x)) → typed(g, n, t))>
+// T-Num / T-Txt / T-Bol：字面量结点按其形状定型
+@theorem
+fun `t num`[g, n, m, t]: Null <((isNumX(n, m) & natTy(t)) → typed(g, n, t))>
+@theorem
+fun `t txt`[g, n, s, t]: Null <((isTxtX(n, s) & strTy(t)) → typed(g, n, t))>
+@theorem
+fun `t bol`[g, n, b, t]: Null <((isBolX(n, b) & boolTy(t)) → typed(g, n, t))>
+// T-Lam：体在扩展上下文 g2 中定型为 t2，则 λ 在 g 中定型为 t1 → t2
+@theorem
+fun `t lam`[g, g2, x, t1, b, t2, n, t]: Null <((extBy(g, g2, x, t1) & isLamX(n, x, b) & typed(g2, b, t2) & funT(t, t1, t2)) → typed(g, n, t))>
+// T-App：函数位置定型为 t1 → t2、参数位置定型为 t1
+@theorem
+fun `t app`[g, f, tf, t1, t2, a, n]: Null <((isAppX(n, f, a) & funT(tf, t1, t2) & typed(g, f, tf) & typed(g, a, t1)) → typed(g, n, t2))>
+// T-If：条件为 Bool，两分支同型
+@theorem
+fun `t if`[g, c, tc, th, el, t, n]: Null <((isIfX(n, c, th, el) & boolTy(tc) & typed(g, c, tc) & typed(g, th, t) & typed(g, el, t)) → typed(g, n, t))>
+
+// ============ 结构元定理（有限实例：弱化、代换） ============
+// 弱化：g 中定型在任意扩展 g2 中保持
+@theorem
+fun `t weaken`[g, g2, n, t, x, t1]: Null <((typed(g, n, t) & extBy(g, g2, x, t1)) → typed(g2, n, t))>
+// 代换引理：g2 中 x : t1、b : t2；g 中 v : t1；r = b[x := v] ⟹ g 中 r : t2
+@theorem
+fun `t subst`[g, g2, x, t1, b, t2, v, r]: Null <((extBy(g, g2, x, t1) & typed(g2, b, t2) & typed(g, v, t1) & substN(b, x, v, r)) → typed(g, r, t2))>
+
+// ============ 上下文规则 ============
+// 前缀自反（可用于定理搜索命中；项级元变量有一致性 env，安全）
+@theorem
+fun `ctx refl`[g]: Null <subCtx(g, g)>
+// 前缀扩展：g 是 CBind(g, x, t) 的前缀
+@theorem
+fun `ctx ext`[g, x, t]: Null <subCtx(g, CBind(g, x, t))>
+
+// ============ 命题层 / 程序层分野（→ 与 =>） ============
+def propP<f>      // f 是命题层条目（定理/公理：编译期擦除）
+def progP<f>      // f 是程序层条目（值级函数：求值期保留）
+def erased<f>     // f 被擦除
+// 分野：命题层 ⇒ 非程序层；命题层 ⇒ 擦除；程序层 ⇒ 不擦除
+@theorem
+fun `layer disjoint`[f]: Null <(propP(f) → ¬(progP(f)))>
+@theorem
+fun `layer erase`[f]: Null <(propP(f) → erased(f))>
+@theorem
+fun `layer keep`[f]: Null <(progP(f) → ¬(erased(f)))>
+
+// ============ 可变拷贝规则（C-COPY 矩阵的逻辑骨架） ============
+// mT/rT/mS/rS：目标/源的是否 @mut / @ref；cp(x, e)：把 e 拷贝到 x。
+// 矩阵 4×4 的化简：① 目标 @mut 且无 @ref 或源纯 → 拷贝；③ 源 @mut 目标纯 → 拷贝；④ 源 @ref 目标无 @ref → 拷贝
+def mT<x>
+def rT<x>
+def mS<e>
+def rS<e>
+def cp<x, e>
+// ① 拆成两个合取子规则（析取前提当前证明器无法分解核对，见 app/limits.md）：
+//    a1: 目标 @mut 且无 @ref → 恒拷（矩阵行 9–12）
+//    a2: 目标 @mut 且源纯 → 拷贝（矩阵行 9–13 经「源纯」分支）
+@theorem
+fun `c copy clause a1`[x, e]: Null <((mT(x) & ¬(rT(x))) → cp(x, e))>
+@theorem
+fun `c copy clause a2`[x, e]: Null <((mT(x) & ¬(mS(e)) & ¬(rS(e))) → cp(x, e))>
+// ③：源 @mut、目标纯 → 拷贝（行 2/6）
+@theorem
+fun `c copy clause c`[x, e]: Null <((mS(e) & ¬(mT(x)) & ¬(rT(x))) → cp(x, e))>
+// ④：源 @ref、目标非 @ref → 拷贝（行 4/8）
+@theorem
+fun `c copy clause d`[x, e]: Null <((rS(e) & ¬(rT(x))) → cp(x, e))>
+
+// ============ 值层镜像：C-COPY 决策函数（可执行规格；JS 冒烟核对） ============
+fun cCopy(mt: Bool, rt: Bool, ms: Bool, rs: Bool): Bool =
+    (mt && ((!rt) || ((!ms) && (!rs)))) || (ms && (!mt) && (!rt)) || (rs && (!rt))

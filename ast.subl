@@ -1,0 +1,103 @@
+// ast.subl —— 第 1 层：抽象语法域（Expr / Ty / Ctx）+ 值层可执行规格 + 形状谓词
+//
+// 【哥德尔边界】本层只定义「有限可构造对象」：三组有限数据类型、其上的可计算函数、
+// 与把构造子形状外化的原子谓词。不含自指、不含可证性陈述、不含完备性陈述。
+// 【与规则层的关系】形状谓词（isVarX 等）把「n 是 Var(x) 结点」外化为一阶原子，
+// 使规则层（statics/dynamics）的全部项位都是 名位（NameRef）——angle 参数方可实例化、
+// 规则方可经调用注入 + MP 闭包组合（见 app/limits.md「angle 参数只代入名」）。
+
+// ============ 数据类型（有限构造域） ============
+enum Expr {
+    Var(Str),          // 变量结点
+    Num(Nat),          // 自然数字面量
+    Txt(Str),          // 字符串字面量
+    Bol(Bool),         // 布尔字面量
+    Lam(Str, Expr),    // λ 抽象（参数名 + 体）
+    App(Expr, Expr),   // 函数应用
+    If(Expr, Expr, Expr)
+}
+enum Ty {
+    TNat(), TStr(), TBool(), TFun(Ty, Ty)
+}
+enum Ctx {
+    CEmpty(), CBind(Ctx, Str, Ty)
+}
+
+// ============ 值层函数（可执行规格；编译到 JS 由 node 实跑核对） ============
+// 结点权重（用于 size 套路的有限度量）
+fun weight(e: Expr): Nat = when(e) {
+    is Var(s) => 1
+    is Num(n) => 1
+    is Txt(s) => 1
+    is Bol(b) => 1
+    is Lam(x, b) => weight(b) + 1
+    is App(f, a) => weight(f) + weight(a) + 1
+    is If(c, t, e2) => weight(c) + weight(t) + weight(e2) + 1
+}
+// 是否值（动态语义的 value 判据）
+fun isValOf(e: Expr): Bool = when(e) {
+    is Var(s) => false
+    is Num(n) => true
+    is Txt(s) => true
+    is Bol(b) => true
+    is Lam(x, b) => true
+    is App(f, a) => false
+    is If(c, t, e2) => false
+}
+// 朴素代换（无捕获避免——捕获避免见 app/limits.md）
+fun subst(body: Expr, name: Str, value: Expr): Expr = when(body) {
+    is Var(x) => if (x == name) { value } else { body }
+    is Num(n) => body
+    is Txt(s) => body
+    is Bol(b) => body
+    is Lam(x, b) => if (x == name) { body } else { Lam(x, subst(b, name, value)) }
+    is App(f, a) => App(subst(f, name, value), subst(a, name, value))
+    is If(c, t, e2) => If(subst(c, name, value), subst(t, name, value), subst(e2, name, value))
+}
+// 自由变量（忽略重复——集合语义见 limits.md 的 P-2 缺口）
+fun fvOf(e: Expr): List[Str] = when(e) {
+    is Var(x) => Cons(x, Nil())
+    is Num(n) => Nil()
+    is Txt(s) => Nil()
+    is Bol(b) => Nil()
+    is Lam(x, b) => dropOne(fvOf(b), x)
+    is App(f, a) => cat(fvOf(f), fvOf(a))
+    is If(c, t, e2) => cat(cat(fvOf(c), fvOf(t)), fvOf(e2))
+}
+fun dropOne(xs: List[Str], y: Str): List[Str] = when(xs) {
+    Nil => Nil()
+    is Cons(h, t) => if (h == y) { t } else { Cons(h, dropOne(t, y)) }
+}
+fun cat[T](xs: List[T], ys: List[T]): List[T] = when(xs) {
+    Nil => ys
+    is Cons(h, t) => Cons(h, cat(t, ys))
+}
+
+// ============ 形状谓词（构造子形状外化；全部项位为名位） ============
+// isVarX(n, x)：n 是变量结点 Var(x)；isNumX(n, m)：n 是字面量结点 Num(m)；余同。
+// extBy(g, g2, x, t)：g2 恰为 g 经 (x : t) 扩展（g2 = CBind(g, x, t)）。
+// substN(b, x, v, r)：r 恰为代换结果（r = b[x := v]，由值层 subst 计算）。
+// natTy(t)/strTy(t)/boolTy(t)/funT(t, t1, t2)：类型形状。
+def isVarX<n, x>
+def isNumX<n, m>
+def isTxtX<n, s>
+def isBolX<n, b>
+def isTrueX<c>
+def isFalseX<c>
+def isLamX<n, x, b>
+def isAppX<n, f, a>
+def isIfX<n, c, th, el>
+def extBy<g, g2, x, t>
+def substN<b, x, v, r>
+def natTy<t>
+def strTy<t>
+def boolTy<t>
+def funT<t, t1, t2>
+
+// ============ 结构定理（仅经调用注入；其 angle 为蕴含/ctor 形，不入搜索目标） ============
+// 构造子的外延性：同名变量结点相等（演示见 main.subl D 组；CallExpr 型结论不经搜索命中）
+@theorem
+fun `var nodes equal`[s1, s2]: Null <((s1 = s2) → (Var(s1) = Var(s2)))>
+// 字面量结点是值：Num(n) 恒为值（∀ 形经 R-INST 实例化由饱和闭包负责）
+@theorem
+fun `num nodes are values`[n]: Null <valN(Num(n))>

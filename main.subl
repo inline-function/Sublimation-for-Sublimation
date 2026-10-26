@@ -1,0 +1,189 @@
+// main.subl —— 集成与演示
+//
+// 两种机器核对通道（任务硬性要求 2）：
+//   · A 组「定理搜索真的命中」——目标不在 Γ 中，经 searchTheorems 的结构合一放电
+//     （core.logic/core.classic 全为蕴含/等式形态，项级元变量带一致性 env，实例均取对称形态）；
+//   · B–F 组「规则应用链」——@theorem 规则以 <名>() 调用注入其角度（蕴含式），
+//     前提由 axiom 数据库供给，饱和闭包 MP 放电；每个 ∴ 检查点成功后结论注入 Γ，
+//     下游阶段的 MP 链即可引用（分阶段链，规避 maxRounds = 3）。
+// G 组验证 t30 的 by 断言语义（只核对不注入）；H 组为值层可执行规格冒烟。
+
+@impure
+fun main(): Null {
+    // ============ 0. 语法数据库（值层名位；每条 axiom 可由 H 组的值层计算核对） ============
+    var g0 : Ctx = CEmpty()
+    var vx : Str = "x"
+    var vtnat : Ty = TNat()
+    var vfun : Ty = TFun(TNat(), TNat())
+    var ext : Ctx = CBind(g0, "x", TNat())
+    var vbody : Expr = Var("x")               // 体 = 变量结点
+    var vlam : Expr = Lam("x", Var("x"))      // λx.x
+    var vn3 : Expr = Num(3)
+    var vapp : Expr = App(Lam("x", Var("x")), Num(3))   // (λx.x) 3
+    var vred : Expr = Num(3)                  // β 结果（由 subst(vbody, vx, vn3) 计算）
+    var c3 : Nat = 3
+
+    // ============ A. 定理搜索命中（目标均不在 Γ 中） ============
+    // A1 等式自反：refl[a] 的 a 绑定整个 weight 调用项
+    ∴ (weight(vapp) = weight(vapp))
+    // A2 排中律（对称形态 T ∨ ¬T；非对称形会被误收，见 app/limits.md）
+    ∴ (typed(ext, vbody, vtnat) ∨ ¬(typed(ext, vbody, vtnat)))
+    // A3 析取引入左：or intro left[p, q]: p → (p ∨ q)
+    ∴ (typed(g0, vn3, vtnat) → (typed(g0, vn3, vtnat) ∨ typed(g0, vn3, vtnat)))
+    // A4 蕴含自反：imp refl[p]: p → p
+    ∴ (typed(g0, vn3, vtnat) → typed(g0, vn3, vtnat))
+    // A5 自家 ctx refl[g]: subCtx(g, g)（前提自由 + 项级元变量直位，安全命中）
+    ∴ subCtx(g0, g0)
+    // A6 自家 steps refl[n]: steps(n, n)
+    ∴ steps(vapp, vapp)
+
+    // ============ B. 类型推导链：g0 ⊢ (λx.x) 3 : Nat ============
+    axiom isVarX(vbody, vx)
+    axiom isNumX(vn3, c3)
+    axiom isLamX(vlam, vx, vbody)
+    axiom isAppX(vapp, vlam, vn3)
+    axiom natTy(vtnat)
+    axiom funT(vfun, vtnat, vtnat)
+    axiom bound(ext, vx, vtnat)
+    axiom extBy(g0, ext, vx, vtnat)
+    axiom substN(vbody, vx, vn3, vred)
+
+    `t var`<ext, vx, vtnat, vbody>()
+    ∴ typed(ext, vbody, vtnat)                              // P1：T-Var
+    `t lam`<g0, ext, vx, vtnat, vbody, vtnat, vlam, vfun>()
+    ∴ typed(g0, vlam, vfun)                                 // P2：T-Lam（用 P1）
+    `t num`<g0, vn3, c3, vtnat>()
+    ∴ typed(g0, vn3, vtnat)                                 // P3：T-Num
+    `t app`<g0, vlam, vfun, vtnat, vtnat, vn3, vapp>()
+    ∴ typed(g0, vapp, vtnat)                                // P4：T-App（用 P2 ∧ P3）
+
+    // 弱化实例：P3 在扩展上下文 ext 中保持
+    `t weaken`<g0, ext, vn3, vtnat, vx, vtnat>()
+    ∴ typed(ext, vn3, vtnat)
+    // 代换引理实例：typed(ext, vbody, vtnat) ∧ typed(g0, vn3, vtnat) ∧ vred = vbody[vx := vn3]
+    `t subst`<g0, ext, vx, vtnat, vbody, vtnat, vn3, vred>()
+    ∴ typed(g0, vred, vtnat)
+
+    // ============ C. 动态语义：β 规约 + 多步闭包 + 进度/保持 ============
+    `d val num`<vn3, c3>()
+    ∴ valN(vn3)
+    `d beta`<vapp, vlam, vn3, vx, vbody, vred>()
+    ∴ step(vapp, vred)
+    `steps refl`<vapp>()
+    ∴ steps(vapp, vapp)
+    `steps step`<vapp, vapp, vred>()
+    ∴ steps(vapp, vred)
+    `preservation step`<g0, vapp, vred, vtnat>()
+    ∴ typed(g0, vred, vtnat)
+
+    // ============ D. 可变拷贝规则 ============
+    var tgt : Str = "a2"
+    var src : Str = "b3"
+    var tgt9 : Str = "a9"
+    axiom mS(src)
+    axiom ¬(mT(tgt))
+    axiom ¬(rT(tgt))
+    `c copy clause c`<tgt, src>()            // ③ 源 @mut 目标纯 → 拷贝
+    ∴ cp(tgt, src)
+    axiom mT(tgt9)
+    axiom ¬(rT(tgt9))
+    `c copy clause a1`<tgt9, src>()          // ① 目标 @mut 无 @ref → 恒拷
+    ∴ cp(tgt9, src)
+
+    // ============ E. → 命题层 / => 程序层分野 ============
+    var frefl : Str = "refl"
+    var fmap : Str = "list.map"
+    axiom propP(frefl)
+    `layer disjoint`<frefl>()
+    ∴ ¬(progP(frefl))
+    `layer erase`<frefl>()
+    ∴ erased(frefl)
+    axiom progP(fmap)
+    `layer keep`<fmap>()
+    ∴ ¬(erased(fmap))
+
+    // ============ F. 编译管道 ============
+    var p1 : Nat = 1
+    var p2 : Nat = 2
+    var p3 : Nat = 3
+    var p4 : Nat = 4
+    var p5 : Nat = 5
+    var p6 : Nat = 6
+    var p7 : Nat = 7
+    var p10 : Nat = 10
+    var p11 : Nat = 11
+    var p12 : Nat = 12
+    var p13 : Nat = 13
+
+    // F1 阶段序：Lex..Post 七阶段（分阶段 ∴ 检查点）
+    axiom phBefore(p1, p2)
+    axiom phBefore(p2, p3)
+    axiom phBefore(p3, p4)
+    axiom phBefore(p4, p5)
+    axiom phBefore(p5, p6)
+    axiom phBefore(p6, p7)
+    `phase trans`<p1, p2, p3>()
+    ∴ phBefore(p1, p3)
+    `phase trans`<p1, p3, p4>()
+    ∴ phBefore(p1, p4)
+    `phase trans`<p1, p4, p5>()
+    ∴ phBefore(p1, p5)
+    `phase trans`<p1, p5, p6>()
+    ∴ phBefore(p1, p6)
+    `phase trans`<p1, p6, p7>()
+    ∴ phBefore(p1, p7)
+
+    // F2 通道短路：常量原子真值通道先命中 ⟹ 定理搜索通道不再尝试
+    axiom chanBefore(p4, p13)
+    axiom hitC(p4, p12)
+    `chan short`<p4, p13, p12>()
+    ∴ ¬(tryC(p13, p12))
+    `chan prove`<p4, p12>()
+    ∴ provK(p12)
+
+    // F3 饱和闭包 R-AXIOM + R-MP ×2（分阶段检查点）
+    axiom factK(p10)
+    axiom impK(p10, p11)
+    axiom impK(p11, p12)
+    `r axiom`<p10>()
+    ∴ provK(p10)
+    `r mp`<p10, p11>()
+    ∴ provK(p11)
+    `r mp`<p11, p12>()
+    ∴ provK(p12)
+
+    // F4 闭包终止：单调 + 有界 ⟹ 不动点
+    axiom monoR(p7)
+    axiom boundR(p7)
+    `satur fix`<p7>()
+    ∴ termR(p7)
+
+    // F5 模块树：根模块对全部路径可见
+    var coreM : Str = "core"
+    var vpath : Str = "core/logic"
+    axiom rootMod(coreM)
+    `root visible`<coreM, vpath>()
+    ∴ modOf(coreM, vpath)
+
+    // ============ G. by 断言（t30 新语义：只核对、不注入 Γ） ============
+    var ncheck : Expr = Num(3) by [typed(g0, vapp, vtnat)]   // Γ 成员证（P4 已注入）
+    var wrefl : Expr = Num(1) by [(vapp = vapp)]             // core.logic refl 搜索命中（项级一致）
+
+    // ============ H. 值层可执行规格冒烟 ============
+    print("weight(vapp) = 4 ? ")
+    print(weight(vapp))
+    print("weight(ncheck) = 1 ? ")
+    print(weight(ncheck))
+    print("weight(wrefl) = 1 ? ")
+    print(weight(wrefl))
+    print("vbody[vx := vn3] is a value ? ")
+    print(isValOf(subst(vbody, vx, vn3)))
+    print("subst == vred ? ")
+    print(subst(vbody, vx, vn3) == vred)
+    print("cCopy row2 (0,0,1,0) = true ? ")
+    print(cCopy(false, false, true, false))
+    print("cCopy row1 (0,0,0,0) = false ? ")
+    print(cCopy(false, false, false, false))
+    print("sublimation for sublimation ok")
+    return null
+}

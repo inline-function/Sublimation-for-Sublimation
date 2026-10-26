@@ -1,0 +1,52 @@
+// dynamics.subl —— 第 3 层：动态语义（小步操作语义）+ 进度/保持（局部元定理）
+//
+// 【判断】valN(n)（n 是值）、step(n, n2)（n → n2 单步）、steps(n, n2)（多步自反-传递闭包）。
+// 规则全部名位 + 蕴含式 angle：β 规约的代换结果由 substN（值层 subst 的 oracle）外化，
+// 避免在规则内嵌入 CallExpr（搜索不可达、angle 参数不可代入）。
+// 【进度/保持】progress/preservation 写成「前提蕴含结论」的局部实例——归纳结构不机械化，
+// 为受信元定理 + 机器核对实例（哥德尔边界；见 app/limits.md）。
+
+def valN<n>         // n 是值
+def step<n, n2>     // n → n2（单步）
+def steps<n, n2>    // n →* n2（自反-传递闭包）
+
+// ============ 值规则 ============
+@theorem
+fun `d val num`[n, m]: Null <(isNumX(n, m) → valN(n))>
+@theorem
+fun `d val txt`[n, s]: Null <(isTxtX(n, s) → valN(n))>
+@theorem
+fun `d val bol`[n, b]: Null <(isBolX(n, b) → valN(n))>
+@theorem
+fun `d val lam`[n, x, b]: Null <(isLamX(n, x, b) → valN(n))>
+
+// ============ 单步规则 ============
+// β：n 恰是 App(l, x)、l 恰是 Lam(y, b)、x 是值、r = b[y := x] ⟹ n → r
+@theorem
+fun `d beta`[n, l, x, y, b, r]: Null <((isAppX(n, l, x) & isLamX(l, y, b) & valN(x) & substN(b, y, x, r)) → step(n, r))>
+// 应用左/右优先（同左值内先归约函数位）
+@theorem
+fun `d app left`[n, f, x, f2, n2]: Null <((isAppX(n, f, x) & valN(x) & step(f, f2) & isAppX(n2, f2, x)) → step(n, n2))>
+@theorem
+fun `d app right`[n, f, x, x2, n2]: Null <((isAppX(n, f, x) & valN(f) & step(x, x2) & isAppX(n2, f, x2)) → step(n, n2))>
+// 条件分支
+@theorem
+fun `d if true`[n, c, th, el]: Null <((isIfX(n, c, th, el) & isTrueX(c)) → step(n, th))>
+@theorem
+fun `d if false`[n, c, th, el]: Null <((isIfX(n, c, th, el) & isFalseX(c)) → step(n, el))>
+
+// ============ 多步闭包 ============
+// 自反（前提自由：项级元变量直位，可作定理搜索命中目标）
+@theorem
+fun `steps refl`[n]: Null <steps(n, n)>
+// 传递（step 嵌入 steps）
+@theorem
+fun `steps step`[n, n2, n3]: Null <((steps(n, n2) & step(n2, n3)) → steps(n, n3))>
+
+// ============ 局部元定理（进度 / 保持；受信归纳 + 机器核对实例） ============
+// 进度（值实例）：Num 结点已定型 ⟹ 是值
+@theorem
+fun `progress num`[g, n, m, t]: Null <((typed(g, n, t) & isNumX(n, m) & natTy(t)) → valN(n))>
+// 保持（单步实例）：n : t 且 n → r ⟹ r : t（一般化归纳不机械化，此为「每步保持」的规则式陈述）
+@theorem
+fun `preservation step`[g, n, r, t]: Null <((typed(g, n, t) & step(n, r)) → typed(g, r, t))>
